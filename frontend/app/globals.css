@@ -66,3 +66,14 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Optional: Custom Markdown styles */
+.markdown h1 {
+  @apply text-2xl font-bold mb-2;
+}
+.markdown p {
+  @apply mb-2;
+}
+.markdown ul {
+  @apply list-disc pl-4;
+}
