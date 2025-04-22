@@ -12,9 +12,9 @@ pkgs.mkShell {
   shellHook = ''
     # Create and activate a virtual environment if it doesn't exist
     if [ ! -d ".venv" ]; then
-      python3 -m venv .venv
+      python3 -m venv venv
     fi
-    source .venv/bin/activate
+    source venv/bin/activate
     echo "Virtual environment activated."
   '';
 }
