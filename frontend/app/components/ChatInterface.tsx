@@ -139,40 +139,6 @@ export default function ChatInterface() {
     }
   }, [lastConfirmTime, selectedModel, apiUrl])
 
-  // Handle PDF uploads from MultifunctionBox
-  const handleUpload = async (file: File) => {
-    const formData = new FormData()
-    formData.append('file', file)
-
-    try {
-      const response = await fetch(`${apiUrl}/api/pdf/upload`, {
-        method: 'POST',
-        body: formData,
-      })
-
-      if (!response.ok) throw new Error('Network response was not ok')
-
-      const data = await response.json()
-      setChatHistory((prev) => [...prev, { role: 'assistant', content: data.message }])
-      setNextAction(data.next_action)
-      setSimplifiedMessage('')
-      toast({
-        title: "Success",
-        description: "PDF uploaded successfully",
-      })
-    } catch (error) {
-      console.error('Error uploading PDF:', error)
-      setChatHistory((prev) => [...prev, { role: 'assistant', content: 'Sorry, something went wrong uploading the PDF.' }])
-      setNextAction('none')
-      setSimplifiedMessage('')
-      toast({
-        title: "Error",
-        description: "Failed to upload PDF. Please try again.",
-        variant: "destructive",
-      })
-    }
-  }
-
   return (
     <div className="flex flex-col h-screen w-full overflow-hidden">
       <div className="p-2 bg-gray-100 flex justify-between items-center">
@@ -218,7 +184,6 @@ export default function ChatInterface() {
               nextAction={nextAction}
               response={simplifiedMessage}
               onConfirm={handleConfirm}
-              onUpload={handleUpload}
               selectedModel={selectedModel}
             />
           </Card>

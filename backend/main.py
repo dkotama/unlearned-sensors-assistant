@@ -1,21 +1,48 @@
-from config import create_app, logger
+import sys
+import os
+from fastapi import FastAPI
+import uvicorn
+from fastapi.middleware.cors import CORSMiddleware
+from routes.api import router
+from dotenv import load_dotenv
 
-# Option 1: If using relative imports
-from .routes.api import router
+# Add the parent directory to sys.path to make imports work
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Option 2: If main.py is at the package root
-# from backend.routes.api import router 
-
-# Option 3: If backend is in the Python path
-# from routes.api import router
+from config import settings, logger
 
 # Create FastAPI app
-app = create_app()
+app = FastAPI(
+    title="Unlearned Sensors Assistant API",
+    description="API for the Unlearned Sensors Assistant project",
+    version="1.0.0"
+)
 
-# Add API router
+# Include API router
 app.include_router(router, prefix="/api")
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.get("/")
+async def root():
+    """
+    Root endpoint to check if the API is running.
+    """
+    return {"message": "Unlearned Sensors Assistant API is running"}
+
 if __name__ == "__main__":
-    import uvicorn
-    logger.info("Starting server...")
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    logger.info(f"Starting server on {settings.host}:{settings.port}")
+    uvicorn.run(
+        app,
+        host=settings.host,
+        port=settings.port,
+        reload=settings.debug,
+        log_level="info"
+    )

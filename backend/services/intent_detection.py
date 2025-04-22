@@ -1,6 +1,6 @@
 import spacy
 from spacy.matcher import Matcher
-from ..config import logger
+from config import logger
 
 # Load spaCy model
 nlp = spacy.load("en_core_web_sm")

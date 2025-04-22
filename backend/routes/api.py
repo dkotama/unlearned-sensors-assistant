@@ -1,16 +1,23 @@
 import time
 from fastapi import HTTPException, UploadFile, File, APIRouter
-from ..config import logger
-from ..models.api_models import ChatRequest, ChatResponse
-from ..llm.client import create_chain
-from ..services.conversation import (
+from typing import List
+from pydantic import BaseModel
+# Replace relative imports with absolute imports
+from config import logger
+from models.api_models import ChatRequest, ChatResponse
+from models.sensor import SensorSpecification
+from llm.client import create_chain, create_extraction_chain  # Add the new import
+from services.conversation import (
     get_conversation_state, reset_conversation, add_to_history, 
     get_history_text, update_step, update_last_confirmation_time,
     should_throttle_confirmation, extract_simplified_message
 )
-from ..services.intent_detection import detect_intent
+from services.intent_detection import detect_intent
+from services.sensor_service import get_all_sensors, get_sensor_by_model, debug_mongodb_connection
+# Import the PDF processing function
+from services.pdf_processor import process_pdf_datasheet
 
-# Create router - make sure this is at the module level and not inside a function or class
+# Create router
 router = APIRouter()
 
 @router.post("/chat", response_model=ChatResponse)
@@ -139,19 +146,59 @@ async def confirm_sensor(request: ChatRequest):
         raise HTTPException(status_code=400, detail="Invalid response. Please respond with 'yes' or 'no'.")
 
 @router.post("/pdf/upload")
-async def upload_pdf(file: UploadFile = File(...)):
+async def upload_pdf(file: UploadFile = File(...), model: str = None):
     """
-    Handle PDF file upload and chunking.
+    Handle PDF file upload, process it, and store extracted data.
+    
+    Args:
+        file: The PDF file to process
+        model: Optional model name to use for extraction (from frontend)
     """
+    if not file.filename.lower().endswith('.pdf'):
+        logger.warning(f"Upload attempt with non-PDF file: {file.filename}")
+        raise HTTPException(status_code=400, detail="Invalid file type. Only PDF files are allowed.")
+        
     try:
         content = await file.read()
-        logger.debug(f"Uploaded PDF: filename='{file.filename}', size={len(content)} bytes")
-        response = {"message": "PDF processed. Returning to default state.", "next_action": "none"}
-        logger.info(f"Sending upload response: {response}")
-        return response
+        filename = file.filename
+        logger.info(f"Received PDF for processing: filename='{filename}', size={len(content)} bytes, model={model}")
+        
+        # Call the processing function from pdf_processor service with the selected model
+        processed_data = await process_pdf_datasheet(content, filename, model)
+        
+        # Determine success message based on processing result
+        model_name = processed_data.get("model", "Unknown")
+        
+        # Check if we extracted meaningful data
+        extraction_quality = "partial"
+        if processed_data.get("manufacturer") and processed_data.get("sensor_type"):
+            # Check if any specifications were extracted
+            specs = processed_data.get("specifications", {})
+            if any(specs.get(category) for category in ["performance", "electrical", "mechanical", "environmental"]):
+                extraction_quality = "good"
+        
+        message = f"Successfully processed '{filename}' and extracted data for sensor model '{model_name}'."
+        if extraction_quality == "partial":
+            message += " Limited data was extracted."
+        
+        logger.info(f"Sending successful upload response: {message}")
+        
+        # Return more data to the frontend for feedback
+        return {
+            "message": message, 
+            "processed_model": model_name,
+            "manufacturer": processed_data.get("manufacturer"),
+            "sensor_type": processed_data.get("sensor_type"),
+            "specifications": processed_data.get("specifications", {}),
+            "extraction_quality": extraction_quality,
+            "next_action": "none" # Explicitly indicate to return to default state
+        }
+        
     except Exception as e:
-        logger.error(f"Error while processing PDF: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Error processing PDF.")
+        # Log the detailed error from processing
+        logger.error(f"Error processing uploaded PDF '{file.filename}': {str(e)}", exc_info=True)
+        # Return a generic error message to the client
+        raise HTTPException(status_code=500, detail=f"Error processing PDF: {str(e)}")
 
 @router.post("/reset")
 async def reset_api():
@@ -172,3 +219,56 @@ async def debug_state():
         "state": conversation_state,
         "timestamp": time.time()
     }
+
+@router.get("/debug/data")
+async def debug_data():
+    """
+    Return MongoDB database connection status and sample data for debugging.
+    """
+    debug_info = await debug_mongodb_connection()
+    logger.info(f"Debug data endpoint accessed. Connection status: {debug_info['status']}")
+    return debug_info
+
+# Add a SensorsResponse model
+class SensorsResponse(BaseModel):
+    sensors: List[dict]
+
+@router.get("/sensors", response_model=SensorsResponse)
+async def get_sensors():
+    """
+    Get all sensors from the database.
+    
+    Returns:
+        SensorsResponse: Object containing list of sensors
+    """
+    try:
+        sensors = await get_all_sensors()
+        logger.info(f"Returning {len(sensors)} sensors to frontend")
+        return {"sensors": sensors}  # Return structured response expected by frontend
+    except Exception as e:
+        logger.error(f"Error retrieving sensors: {str(e)}", exc_info=True)
+        # Return empty list instead of error to avoid breaking frontend
+        return {"sensors": []}
+
+@router.get("/sensors/{model}", response_model=dict)
+async def get_sensor(model: str):
+    """
+    Get sensor details by model.
+    
+    Args:
+        model: The sensor model to retrieve
+        
+    Returns:
+        dict: Sensor details or None if not found
+    """
+    try:
+        sensor = await get_sensor_by_model(model)
+        if sensor:
+            return sensor
+        else:
+            raise HTTPException(status_code=404, detail=f"Sensor with model {model} not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving sensor {model}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Error retrieving sensor")

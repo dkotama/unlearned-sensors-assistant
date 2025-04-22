@@ -1,5 +1,5 @@
 import time
-from ..config import logger
+from config import logger
 
 # In-memory conversation state and chat history
 conversation_state = {

@@ -2,7 +2,7 @@ from langchain_openai import ChatOpenAI
 from langchain.chains import LLMChain
 from langchain_core.prompts import PromptTemplate
 import os
-from ..config import logger, get_api_key, DEFAULT_MODEL
+from config import logger, get_api_key, DEFAULT_MODEL
 
 def load_prompt_template():
     """Load the prompt template from file."""
@@ -49,3 +49,35 @@ def create_chain(model_name=DEFAULT_MODEL, temperature=0.7):
     chain = LLMChain(prompt=prompt, llm=llm)
     logger.debug(f"Created LLMChain with model: {model_name}")
     return chain
+
+def create_extraction_chain(model_name: str = None, temperature: float = 0.1):
+    """
+    Create a specialized LLM chain for datasheet extraction that doesn't require chat history.
+    
+    Args:
+        model_name: Name of the model to use (defaults to config)
+        temperature: Sampling temperature (0.0-1.0)
+        
+    Returns:
+        LLMChain: A configured chain for extraction tasks
+    """
+    from langchain.prompts import PromptTemplate
+    from langchain.chains import LLMChain
+    
+    # Use default model from config if not specified
+    if not model_name:
+        model_name = os.getenv("LLM_MODEL", "meta-llama/llama-3.1-8b-instruct")
+    
+    logger.debug(f"Created extraction LLMChain with model: {model_name}")
+    
+    # Create LLM instance - use create_llm instead of get_llm
+    llm = create_llm(model_name, temperature)
+    
+    # Create a prompt template specifically for extraction (only requires user_input)
+    extraction_prompt = PromptTemplate(
+        input_variables=["user_input"],
+        template="{user_input}"
+    )
+    
+    # Return a chain with the extraction prompt
+    return LLMChain(llm=llm, prompt=extraction_prompt)
