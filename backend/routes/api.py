@@ -272,3 +272,16 @@ async def get_sensor(model: str):
     except Exception as e:
         logger.error(f"Error retrieving sensor {model}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Error retrieving sensor")
+
+@router.get("/db-debug")
+async def db_debug():
+    """
+    Debug endpoint to check database connection and content.
+    """
+    try:
+        debug_info = await debug_mongodb_connection()
+        logger.info(f"DB Debug endpoint accessed. Connection status: {debug_info['status']}")
+        return debug_info
+    except Exception as e:
+        logger.error(f"Error in DB debug endpoint: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")

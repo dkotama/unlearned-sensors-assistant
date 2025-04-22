@@ -2,9 +2,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Chatbox from './Chatbox';
 import MultifunctionBox from './MultifunctionBox'; // Import MultifunctionBox
 import { useToast } from "@/app/components/ui/use-toast";
-import { Card, CardContent, CardFooter, CardHeader } from './ui/card'; // Import Card components
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 
-// Define Message type if not already globally available
+ // Define Message type if not already globally available
 interface Message {
   role: 'user' | 'assistant';
   content: string;
@@ -16,13 +16,43 @@ function ChatInterface() {
   const [nextAction, setNextAction] = useState('none');
   const [simplifiedMessage, setSimplifiedMessage] = useState('');
   const [selectedModel, setSelectedModel] = useState('meta-llama/llama-3.1-8b-instruct');
+  
+  // Debug logs for initial state
+  console.log("ChatInterface initial render - chatHistory type:",
+    Array.isArray(chatHistory) ?
+    `Array with ${chatHistory.length} items` :
+    typeof chatHistory);
 
   const isCloudWorkstations = process.env.NEXT_PUBLIC_CLOUD_WORKSTATIONS === 'true';
-  const defaultApiUrl = 'http://localhost:8000';
-  const cloudWorkstationsApiUrl = process.env.NEXT_PUBLIC_CLOUD_API_URL || '';
-  const apiUrl = isCloudWorkstations ? cloudWorkstationsApiUrl : defaultApiUrl;
+  
+  // In cloud workstations, construct the URL with the correct port (8000)
+  let apiUrl = '';
+  if (isCloudWorkstations) {
+    // Extract the hostname part from the window.location
+    try {
+      // First try to get from window.location if we're in the browser
+      if (typeof window !== 'undefined') {
+        const hostname = window.location.hostname;
+        // Replace the port part in the hostname
+        apiUrl = `https://${hostname.replace(/^[^-]+-/, '8000-')}`;
+        console.log(`%cChatInterface: Constructed Cloud Workstations API URL: ${apiUrl}`, 'color: purple; font-weight: bold;');
+      } else {
+        // Fallback to env var if not in browser
+        apiUrl = process.env.NEXT_PUBLIC_CLOUD_API_URL || '';
+        console.log(`%cChatInterface: Using environment variable API URL: ${apiUrl}`, 'color: purple;');
+      }
+    } catch (e) {
+      console.error('Error constructing Cloud Workstations URL:', e);
+      // Fallback to env var
+      apiUrl = process.env.NEXT_PUBLIC_CLOUD_API_URL || '';
+    }
+  } else {
+    // Local development
+    apiUrl = 'http://localhost:8000';
+    console.log(`%cChatInterface: Using local API URL: ${apiUrl}`, 'color: purple;');
+  }
 
-  useEffect(() => {
+  useEffect(()  => {
     console.log(`ChatInterface: Using API URL: ${apiUrl}`);
   }, [apiUrl]);
 
@@ -37,8 +67,42 @@ function ChatInterface() {
   const handleChatResponse = useCallback((action: string, simplifiedMsg: string, history: Message[]) => {
     setNextAction(action);
     setSimplifiedMessage(simplifiedMsg);
+    
+    // Detailed debug logging for history parameter
+    console.log("handleChatResponse received history:", {
+      type: typeof history,
+      isArray: Array.isArray(history),
+      length: history?.length,
+      firstItem: history?.[0] ? {
+        type: typeof history[0],
+        isMessageObj: history[0] && typeof history[0] === 'object' && 'role' in history[0] && 'content' in history[0],
+        value: history[0]
+      } : null
+    });
+    
     if (history) {
-        setChatHistory(history);
+        // Make sure history is a properly formatted Message array
+        if (Array.isArray(history)) {
+            const validHistory = history.map(msg => {
+                // If msg is a string, convert it to a Message object
+                if (typeof msg === 'string') {
+                    console.log("Converting string to Message object:", msg);
+                    return { role: 'assistant' as const, content: msg };
+                }
+                // If it's already a Message object with correct types, keep it as is
+                if (typeof msg === 'object' && msg !== null &&
+                    ('role' in msg) && ('content' in msg) &&
+                    (msg.role === 'user' || msg.role === 'assistant')) {
+                    return msg as Message;
+                }
+                // Otherwise create a default Message
+                console.warn("Unexpected message format:", msg);
+                return { role: 'assistant' as const, content: String(msg) };
+            });
+            setChatHistory(validHistory);
+        } else {
+            console.error("Invalid history format - not an array:", history);
+        }
     }
     console.log("ChatInterface updated state:", { action, simplifiedMsg, historyLength: history?.length });
   }, []);
@@ -47,7 +111,7 @@ function ChatInterface() {
     console.log(`ChatInterface: Sending API request for message: ${message}`);
     setChatHistory((prev) => [...prev, { role: 'user', content: message }]);
     try {
-      const response = await fetch(`${apiUrl}/api/chat`, {
+      const response = await fetch(`${apiUrl}/api/v1/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message, model: selectedModel }),
@@ -70,38 +134,31 @@ function ChatInterface() {
   const handleMultifunctionBoxConfirm = useCallback((answer: 'yes' | 'no') => {
     console.log(`ChatInterface: Received confirmation from MultifunctionBox: ${answer}`);
     if (answer === 'yes') {
-      sendApiRequest("Confirm");
+      sendApiRequest("yes");  // Send literal "yes" instead of "Confirm"
     } else {
-      sendApiRequest("Decline");
+      sendApiRequest("no");   // Send literal "no" instead of "Decline"
     }
   }, [sendApiRequest]);
 
   return (
-    <div className="flex h-full gap-4">
-      {/* Left side: Chat area - Now 50% width */}
-      <div className="w-1/2 flex flex-col gap-4">
-        <Card className="flex-1 flex flex-col overflow-hidden">
-          <Chatbox
-            initialChatHistory={chatHistory}
-            selectedModel={selectedModel} // Keep passing model for context if needed by Chatbox
-            onChatResponse={handleChatResponse}
-          />
-        </Card>
-
-        {/* REMOVED Model Selection Drawer Trigger */}
-        {/* <div className="text-right"> ... Drawer code ... </div> */}
-      </div>
-
-      {/* Right side: Multifunction Box - Now 50% width */}
-      <div className="w-1/2 flex flex-col">
-        {/* Pass model state and handler to MultifunctionBox */}
+    <div className="flex h-full w-full gap-4 p-4">
+      <Card className="w-1/2 h-full flex flex-col">
+        <Chatbox
+          initialChatHistory={chatHistory}
+          selectedModel={selectedModel}
+          onChatResponse={handleChatResponse}
+          onModelChange={setSelectedModel}
+          models={models}
+        />
+      </Card>
+      <div className="w-1/2 h-full">
         <MultifunctionBox
           nextAction={nextAction}
           response={simplifiedMessage}
-          selectedModel={selectedModel} // Pass current value
+          selectedModel={selectedModel}
           onConfirm={handleMultifunctionBoxConfirm}
-          models={models} // Pass available models
-          onModelChange={setSelectedModel} // Pass state setter function
+          models={models}
+          onModelChange={setSelectedModel}
         />
       </div>
     </div>

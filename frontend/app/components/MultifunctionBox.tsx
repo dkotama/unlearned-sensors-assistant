@@ -6,7 +6,7 @@ import { Input } from './ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { ScrollArea } from './ui/scroll-area'
 import ReactMarkdown from 'react-markdown'
-import { Loader2 } from 'lucide-react'
+import { Loader2, RotateCcw } from 'lucide-react'
 import {
   Drawer,
   DrawerContent,
@@ -154,11 +154,53 @@ interface DefaultModeProps {
   sensors: Sensor[];
   onSensorClick: (sensor: Sensor) => void;
   isLoading: boolean;
+  onRefresh?: () => void;
+  apiUrl: string;
 }
 
-const DefaultModeContent: React.FC<DefaultModeProps> = ({ sensors, onSensorClick, isLoading }) => (
+const DefaultModeContent: React.FC<DefaultModeProps> = ({ sensors, onSensorClick, isLoading, onRefresh, apiUrl }) => {
+  return (
   <div>
-    <h3 className="text-lg font-semibold mb-2">Available Sensors</h3>
+    <div className="flex justify-between items-center mb-2">
+      <h3 className="text-lg font-semibold">Available Sensors</h3>
+      <div className="flex space-x-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={async () => {
+            try {
+              // First try the DB debug endpoint
+              const dbResponse = await fetch(`${apiUrl}/api/v1/db-debug`);
+              const dbData = await dbResponse.json();
+              console.log("DB Debug data:", dbData);
+              
+              // Then try the sensors endpoint directly
+              const sensorResponse = await fetch(`${apiUrl}/api/v1/sensors`);
+              const sensorData = await sensorResponse.json();
+              console.log("Direct sensors request:", sensorData);
+              
+              alert(`DB test: ${dbResponse.ok ? 'OK' : 'Failed'}\nSensors test: ${sensorResponse.ok ? 'OK' : 'Failed'}\nSee console for details`);
+            } catch (error: any) {
+              console.error("DB test error:", error);
+              alert(`Error testing DB: ${error?.message || 'Unknown error'}`);
+            }
+          }}
+          className="text-xs"
+        >
+          Test DB
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onRefresh}
+          disabled={isLoading}
+          className="text-xs"
+        >
+          {isLoading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RotateCcw className="h-3 w-3 mr-1" />}
+          Refresh
+        </Button>
+      </div>
+    </div>
     {isLoading && sensors.length === 0 && (
         <div className="flex justify-center p-4"><Loader2 className="h-6 w-6 animate-spin text-gray-500" /></div>
     )}
@@ -190,7 +232,8 @@ const DefaultModeContent: React.FC<DefaultModeProps> = ({ sensors, onSensorClick
       </div>
     ))}
   </div>
-);
+  );
+};
 
 interface SensorDetailsDrawerProps {
   sensor: SensorDetails | null;
@@ -278,10 +321,32 @@ export default function MultifunctionBox({
   const { toast } = useToast();
   const hasFetchedSensors = useRef(false);
 
+  // Use the same URL construction logic as in ChatInterface
   const isCloudWorkstations = process.env.NEXT_PUBLIC_CLOUD_WORKSTATIONS === 'true';
   const defaultApiUrl = 'http://localhost:8000';
-  const cloudWorkstationsApiUrl = process.env.NEXT_PUBLIC_CLOUD_API_URL || '';
-  const apiUrl = isCloudWorkstations ? cloudWorkstationsApiUrl : defaultApiUrl;
+  let apiUrl = defaultApiUrl;
+  
+  if (isCloudWorkstations) {
+    try {
+      // First try to get from window.location if we're in the browser
+      if (typeof window !== 'undefined') {
+        const hostname = window.location.hostname;
+        // Replace the port part in the hostname
+        apiUrl = `https://${hostname.replace(/^[^-]+-/, '8000-')}`;
+        console.log(`%cMultifunctionBox: Constructed Cloud Workstations API URL: ${apiUrl}`, 'color: blue; font-weight: bold;');
+      } else {
+        // Fallback to env var if not in browser
+        apiUrl = process.env.NEXT_PUBLIC_CLOUD_API_URL || '';
+        console.log(`%cMultifunctionBox: Using environment variable API URL: ${apiUrl}`, 'color: blue;');
+      }
+    } catch (e) {
+      console.error('Error constructing Cloud Workstations URL:', e);
+      // Fallback to env var
+      apiUrl = process.env.NEXT_PUBLIC_CLOUD_API_URL || '';
+    }
+  } else {
+    console.log(`%cMultifunctionBox: Using local API URL: ${apiUrl}`, 'color: blue;');
+  }
 
   console.log(`%cMultifunctionBox rendering/mounting... Mode: ${mode}, NextAction: ${nextAction}`, 'color: orange;');
   
@@ -290,41 +355,35 @@ export default function MultifunctionBox({
   }, [apiUrl]);
 
   const fetchSensors = useCallback(async () => {
-    console.log(`%cMultifunctionBox: Fetching sensors from URL: ${apiUrl}/api/sensors`, 'color: lightgreen;');
+    console.log(`%cMultifunctionBox: Attempting to fetch sensors. API URL: ${apiUrl}`);
     setIsSensorsLoading(true);
     try {
-      const res = await fetch(`${apiUrl}/api/sensors`, { credentials: 'include' });
-
-      // Handle 404 gracefully without toast, set empty array
+      const res = await fetch(`${apiUrl}/api/v1/sensors`, { credentials: 'include' });
+      console.log(`%cMultifunctionBox: Fetch response status: ${res.status}`);
       if (res.status === 404) {
-          console.warn(`MultifunctionBox: /api/sensors endpoint not found (404). Setting sensors to empty array.`);
-          setSensors([]);
+        console.warn(`MultifunctionBox: /api/v1/sensors endpoint not found (404). API URL used: ${apiUrl}`);
+        setSensors([]);
       } else if (!res.ok) {
-          // Throw error for other non-ok statuses to be caught below
-          throw new Error(`Failed to fetch sensors (${res.status})`);
+        throw new Error(`Failed to fetch sensors (${res.status})`);
       } else {
-          // Process successful response
-          const data = await res.json();
-          if (data && data.sensors && Array.isArray(data.sensors)) {
-            setSensors(data.sensors);
-            console.log(`%cMultifunctionBox: Successfully fetched ${data.sensors.length} sensors.`, 'color: green;');
-          } else {
-            console.error("Invalid sensor data format:", data);
-            setSensors([]);
-            toast({ title: "Error", description: "Received invalid sensor data format.", variant: "destructive" });
-          }
+        const data = await res.json();
+        if (data && data.sensors && Array.isArray(data.sensors)) {
+          setSensors(data.sensors);
+          console.log(`%cMultifunctionBox: Successfully fetched ${data.sensors.length} sensors.`);
+        } else {
+          console.error("Invalid sensor data format:", data);
+          setSensors([]);
+          toast({ title: "Error", description: "Received invalid sensor data format.", variant: "destructive" });
+        }
       }
     } catch (error: any) {
-      // Catch errors thrown from !res.ok (excluding 404 handled above)
       console.error('Error fetching sensors:', error);
-      // Show toast only for non-404 errors caught here
       toast({ title: "Error", description: `Failed to load sensor list: ${error.message}`, variant: "destructive" });
       setSensors([]);
     } finally {
       setIsSensorsLoading(false);
     }
-  // Removed toast from dependency array as it's only used conditionally inside
-  }, [apiUrl]);
+  }, [apiUrl, toast]);
 
   // useEffect to fetch sensors ONLY ONCE per mount
   useEffect(() => {
@@ -344,7 +403,7 @@ export default function MultifunctionBox({
     setIsLoading(true);
     setSelectedSensorDetails(null);
     try {
-      const res = await fetch(`${apiUrl}/api/sensors/${model}`, { credentials: 'include' });
+      const res = await fetch(`${apiUrl}/api/v1/sensor/${model}`, { credentials: 'include' });
       if (!res.ok) {
         const errorText = await res.text();
         if (res.status === 404) {
@@ -400,7 +459,7 @@ export default function MultifunctionBox({
     formData.append('model', selectedModel);
 
     try {
-      const res = await fetch(`${apiUrl}/api/pdf/upload`, {
+      const res = await fetch(`${apiUrl}/api/v1/pdf/upload`, {
         method: 'POST',
         body: formData,
         credentials: 'include'
@@ -494,6 +553,13 @@ export default function MultifunctionBox({
             sensors={sensors}
             onSensorClick={handleSensorClick}
             isLoading={isSensorsLoading} // Pass loading state still
+            apiUrl={apiUrl} // Pass the apiUrl to the component
+            onRefresh={() => {
+              console.log("%cMultifunctionBox: Manual refresh triggered", 'color: yellow; font-weight: bold;');
+              hasFetchedSensors.current = false; // Reset the fetch flag
+              fetchSensors(); // Trigger a new fetch
+              hasFetchedSensors.current = true; // Set the flag back to true after fetch
+            }}
           />
         );
     }
@@ -504,19 +570,6 @@ export default function MultifunctionBox({
       <Card className="flex flex-col h-full">
         <CardHeader className="pb-2 flex flex-row justify-between items-center">
           <CardTitle>Sensor Information</CardTitle>
-          <div className="flex items-center gap-2">
-            <Label htmlFor="model-select" className="text-sm font-medium whitespace-nowrap">AI Model:</Label>
-            <Select value={selectedModel} onValueChange={onModelChange}>
-                <SelectTrigger id="model-select" className="w-[200px] lg:w-[250px]">
-                  <SelectValue placeholder="Select a model" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(models ?? []).map((model) => (
-                    <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-          </div>
         </CardHeader>
         <CardContent className="flex-1 overflow-hidden py-0 px-0">
           <ScrollArea className="h-full w-full p-4">

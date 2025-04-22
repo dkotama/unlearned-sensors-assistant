@@ -15,8 +15,8 @@ load_dotenv()
 # Create FastAPI app using the factory function from config
 app = create_app()
 
-# Include API router
-app.include_router(router, prefix="/api")
+# Include API router with the v1 prefix to match Config.API_PREFIX from config.py
+app.include_router(router, prefix="/api/v1")
 
 # Remove CORS middleware addition here, as it's handled in create_app
 # app.add_middleware(
