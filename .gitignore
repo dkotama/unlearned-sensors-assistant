@@ -22,6 +22,15 @@
 /backend/dist/
 /backend/*.egg-info
 
+# Python cache in subdirectories
+/backend/**/__pycache__/
+/backend/**/*.pyc
+/backend/**/*.pyo
+/backend/**/*.pyd
+
+# Specific backend files to ignore
+/backend/2.0.0
+
 # Next.js (frontend)
 /frontend/node_modules/
 /frontend/.next/
@@ -38,3 +47,8 @@
 /frontend/.vscode/
 
 /venv
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
