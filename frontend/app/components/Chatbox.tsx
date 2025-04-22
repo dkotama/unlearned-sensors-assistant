@@ -23,8 +23,7 @@ export default function Chatbox({ onChatResponse, initialChatHistory, selectedMo
   const [chatHistory, setChatHistory] = useState<Message[]>(initialChatHistory)
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [confirmationCooldown, setConfirmationCooldown] = useState(false)
-  const chatBoxRef = useRef<HTMLDivElement>(null)
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
@@ -33,8 +32,11 @@ export default function Chatbox({ onChatResponse, initialChatHistory, selectedMo
   }, [initialChatHistory])
 
   useEffect(() => {
-    if (chatBoxRef.current) {
-      chatBoxRef.current.scrollTop = chatBoxRef.current.scrollHeight
+    if (scrollAreaRef.current) {
+       const viewport = scrollAreaRef.current.querySelector('div[data-radix-scroll-area-viewport]');
+       if (viewport) {
+         viewport.scrollTop = viewport.scrollHeight;
+       }
     }
   }, [chatHistory])
 
@@ -44,6 +46,7 @@ export default function Chatbox({ onChatResponse, initialChatHistory, selectedMo
       const response = await fetch(`${apiUrl}/api/reset`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include'
       })
 
       if (!response.ok) throw new Error('Network response was not ok')
@@ -58,8 +61,11 @@ export default function Chatbox({ onChatResponse, initialChatHistory, selectedMo
   }
 
   const handleSend = async () => {
-    if (!input.trim() || isLoading) return  // Prevent sending when loading
+    if (!input.trim() || isLoading) return
 
+    const userMessage: Message = { role: 'user', content: input };
+    setChatHistory((prev) => [...prev, userMessage])
+    setInput('')
     setIsLoading(true)
 
     try {
@@ -70,6 +76,7 @@ export default function Chatbox({ onChatResponse, initialChatHistory, selectedMo
           message: input,
           model: selectedModel 
         }),
+        credentials: 'include'
       })
 
       if (!response.ok) throw new Error('Network response was not ok')
@@ -84,16 +91,15 @@ export default function Chatbox({ onChatResponse, initialChatHistory, selectedMo
       onChatResponse('none', 'Sorry, something went wrong.', chatHistory)
     } finally {
       setIsLoading(false)
-      setInput('')
     }
   }
 
   return (
     <>
-      <CardHeader className="pb-2 flex flex-row justify-between items-center">
+      <CardHeader className="pb-2 flex flex-row justify-between items-center border-b">
         <CardTitle>Chatbox</CardTitle>
         <Button 
-          variant="outline" 
+          variant="ghost"
           size="sm" 
           onClick={resetConversation} 
           disabled={isLoading}
@@ -102,55 +108,59 @@ export default function Chatbox({ onChatResponse, initialChatHistory, selectedMo
           <RotateCcw className="h-4 w-4" />
         </Button>
       </CardHeader>
-      <CardContent className="flex flex-col h-[calc(100vh-140px)]">
-        <ScrollArea className="flex-1 mb-4 p-4 border rounded-md" ref={chatBoxRef}>
-          {chatHistory.map((message, index) => (
-            <div
-              key={index}
-              className={`mb-4 ${message.role === 'user' ? 'text-right' : 'text-left'}`}
-            >
-              <span
-                className={`inline-block p-2 rounded-lg ${
-                  message.role === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-800'
-                }`}
-              >
-                {message.role === 'assistant' ? (
-                  <ReactMarkdown>{message.content}</ReactMarkdown>
-                ) : (
-                  message.content
-                )}
-              </span>
-            </div>
-          ))}
-          {isLoading && (
-            <div className="mb-4 text-left">
-              <span className="inline-block p-2 rounded-lg bg-gray-200 text-gray-800">
-                <div className="flex items-center space-x-2">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Assistant is thinking...</span>
+      <CardContent className="flex flex-col flex-1 overflow-hidden p-4">
+        {/* Added min-h-[300px] to the ScrollArea to ensure it always occupies some height */}
+        <ScrollArea className="flex-1 -mx-4 mb-4" ref={scrollAreaRef} style={{minHeight: '300px'}}>
+           <div className="px-4 space-y-4"> 
+              {chatHistory.map((message, index) => (
+                <div
+                  key={index}
+                  className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  <span
+                    className={`inline-block max-w-[80%] p-2 px-3 rounded-lg text-sm ${
+                      message.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'
+                    }`}
+                  >
+                    {message.role === 'assistant' ? (
+                      <ReactMarkdown
+                         components={{
+                            p: ({node, ...props}) => <p className="mb-0" {...props} />
+                         }}
+                      >{message.content}</ReactMarkdown>
+                    ) : (
+                      message.content
+                    )}
+                  </span>
                 </div>
-              </span>
+              ))}
+              {isLoading && (
+                <div className="flex justify-start">
+                  <span className="inline-block p-2 px-3 rounded-lg bg-gray-100 text-gray-900">
+                    <div className="flex items-center space-x-2 text-sm">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Thinking...</span>
+                    </div>
+                  </span>
+                </div>
+              )}
             </div>
-          )}
         </ScrollArea>
-        <div className="flex gap-2 mt-auto pb-4">
+        <div className="flex gap-2 pt-2 border-t">
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Type your message..."
             onKeyPress={(e) => e.key === 'Enter' && !isLoading && handleSend()}
             disabled={isLoading}
+            className="flex-1"
           />
           <Button 
             onClick={handleSend} 
-            disabled={isLoading}
-            className={isLoading ? "opacity-70 cursor-not-allowed" : ""}
+            disabled={isLoading || !input.trim()}
           >
             {isLoading ? (
-              <span className="flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Sending...
-              </span>
             ) : (
               'Send'
             )}

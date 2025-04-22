@@ -1,24 +1,32 @@
 'use client'
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
-import { CardContent, CardHeader, CardTitle } from './ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { ScrollArea } from './ui/scroll-area'
 import ReactMarkdown from 'react-markdown'
 import { Loader2 } from 'lucide-react'
-import { 
-  Drawer, 
-  DrawerContent, 
-  DrawerHeader, 
-  DrawerTitle, 
-  DrawerDescription, 
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerDescription,
   DrawerFooter,
   DrawerClose
 } from './ui/drawer'
-import { toast } from 'sonner'; // Import toast for notifications
+import { useToast } from "@/app/components/ui/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/app/components/ui/select"
+import { Label } from "@/app/components/ui/label";
 
-// Define sensor data interface
+
+// --- Interfaces ---
+interface ModelOption {
+    id: string;
+    name: string;
+}
+
 interface Sensor {
   _id: string
   model: string
@@ -51,8 +59,10 @@ type Mode = 'question' | 'upload' | 'result' | 'default' | 'loading' | 'sensor_d
 interface MultifunctionBoxProps {
   nextAction: string
   response: string
-  onConfirm: (answer: string, autoConfirm?: boolean) => void
   selectedModel: string
+  onConfirm: (answer: 'yes' | 'no') => void
+  models: ModelOption[]
+  onModelChange: (modelId: string) => void
 }
 
 // --- Helper Components ---
@@ -86,15 +96,21 @@ const QuestionModeContent: React.FC<QuestionModeProps> = ({ response, onYes, onN
 interface UploadModeProps {
   response: string;
   onFileUpload: (file: File) => void;
+  isLoading: boolean;
 }
 
-const UploadModeContent: React.FC<UploadModeProps> = ({ response, onFileUpload }) => {
+const UploadModeContent: React.FC<UploadModeProps> = ({ response, onFileUpload, isLoading }) => {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setUploadFile(e.target.files?.[0] || null);
-    setUploadError(null);
+    const file = e.target.files?.[0] || null;
+    setUploadFile(file);
+    if (file) {
+        setUploadError(null);
+    } else {
+        setUploadError("Please select a PDF file.");
+    }
   };
 
   const handleUploadClick = () => {
@@ -109,10 +125,10 @@ const UploadModeContent: React.FC<UploadModeProps> = ({ response, onFileUpload }
     <div>
       <p className="mb-4">{response}</p>
       <div className="bg-gray-50 p-4 rounded-md border border-gray-200">
-        <Input type="file" accept=".pdf" onChange={handleFileChange} className="mb-2" />
+        <Input type="file" accept=".pdf" onChange={handleFileChange} className="mb-2" disabled={isLoading}/>
         {uploadError && <p className="text-red-500 text-sm mb-2">{uploadError}</p>}
-        <Button onClick={handleUploadClick} className="mt-2 w-full" disabled={!uploadFile}>
-          Upload PDF
+        <Button onClick={handleUploadClick} className="mt-2 w-full" disabled={!uploadFile || isLoading}>
+          {isLoading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Uploading...</> : 'Upload PDF'}
         </Button>
       </div>
     </div>
@@ -128,7 +144,7 @@ const ResultModeContent: React.FC<ResultModeProps> = ({ result, onBack }) => (
   <div>
     <h3 className="text-lg font-medium mb-2">Result:</h3>
     <div className="bg-green-50 p-4 border border-green-200 rounded-md mb-4">
-      <p>{result}</p>
+      <p>{result || "No result data available."}</p>
     </div>
     <Button onClick={onBack} className="mt-2">Back to Default</Button>
   </div>
@@ -136,19 +152,21 @@ const ResultModeContent: React.FC<ResultModeProps> = ({ result, onBack }) => (
 
 interface DefaultModeProps {
   sensors: Sensor[];
-  selectedModel: string;
   onSensorClick: (sensor: Sensor) => void;
-  renderSensorDetailsDrawer: () => React.ReactNode;
+  isLoading: boolean;
 }
 
-const DefaultModeContent: React.FC<DefaultModeProps> = ({ sensors, selectedModel, onSensorClick, renderSensorDetailsDrawer }) => (
+const DefaultModeContent: React.FC<DefaultModeProps> = ({ sensors, onSensorClick, isLoading }) => (
   <div>
     <h3 className="text-lg font-semibold mb-2">Available Sensors</h3>
-    {Array.isArray(sensors) && sensors.length > 0 ? (
+    {isLoading && sensors.length === 0 && (
+        <div className="flex justify-center p-4"><Loader2 className="h-6 w-6 animate-spin text-gray-500" /></div>
+    )}
+    {!isLoading && Array.isArray(sensors) && sensors.length > 0 ? (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {sensors.map((sensor) => (
-          <div 
-            key={sensor._id} 
+          <div
+            key={sensor._id}
             onClick={() => onSensorClick(sensor)}
             className="border rounded-md p-3 cursor-pointer hover:bg-gray-50 transition-colors"
           >
@@ -165,19 +183,12 @@ const DefaultModeContent: React.FC<DefaultModeProps> = ({ sensors, selectedModel
           </div>
         ))}
       </div>
-    ) : (
+    ) : (!isLoading && (
       <div className="border rounded-md p-4 text-center bg-gray-50">
         <p>No sensors found in the database.</p>
         <p className="text-sm text-gray-500 mt-1">Upload a sensor datasheet to get started!</p>
       </div>
-    )}
-    <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
-      <p>Ask about a sensor setup to get started!</p>
-      <p className="text-sm mt-1 text-gray-600">
-        Current model: <span className="font-medium">{selectedModel.split('/').pop()}</span>
-      </p>
-    </div>
-    {renderSensorDetailsDrawer()}
+    ))}
   </div>
 );
 
@@ -191,14 +202,17 @@ const SensorDetailsDrawer: React.FC<SensorDetailsDrawerProps> = ({ sensor, isOpe
   if (!sensor) return null;
 
   const renderSection = (title: string, data: Record<string, string | null> | undefined) => {
-    if (!data || Object.keys(data).length === 0) return null;
+    if (!data) return null;
+    const entries = Object.entries(data).filter(([_, value]) => value !== null && value !== undefined && value !== '');
+    if (entries.length === 0) return null;
     return (
-      <section>
-        <h3 className="text-lg font-semibold">{title}</h3>
-        <div className="grid grid-cols-2 gap-2">
-          {Object.entries(data).map(([key, value]) => (
-            <div key={key} className="border-b pb-1">
-              <span className="font-medium">{key.replace(/_/g, ' ')}:</span> {value || 'N/A'}
+      <section className="mb-4">
+        <h3 className="text-md font-semibold mb-2 border-b pb-1">{title}</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-sm">
+          {entries.map(([key, value]) => (
+            <div key={key}>
+              <span className="font-medium text-gray-700">{key.replace(/_/g, ' ').replace(/ \w/g, l => l.toUpperCase())}:</span>
+              <span className="text-gray-900 ml-1">{value}</span>
             </div>
           ))}
         </div>
@@ -208,39 +222,29 @@ const SensorDetailsDrawer: React.FC<SensorDetailsDrawerProps> = ({ sensor, isOpe
 
   return (
     <Drawer open={isOpen} onOpenChange={onOpenChange} direction="right">
-      <DrawerContent>
-        <div className="mx-auto w-full max-w-md p-4">
-          <DrawerHeader className="px-0 pt-0">
-            <DrawerTitle>{sensor.model} - {sensor.sensor_type}</DrawerTitle>
-            <DrawerDescription>{sensor.manufacturer}</DrawerDescription>
+      <DrawerContent className="w-full max-w-lg">
+        <div className="p-4 h-screen flex flex-col">
+          <DrawerHeader className="px-0 pt-0 pb-2 border-b mb-4">
+            <DrawerTitle>{sensor.model || "Sensor Details"}</DrawerTitle>
+            <DrawerDescription>{sensor.manufacturer} - {sensor.sensor_type}</DrawerDescription>
           </DrawerHeader>
-          <ScrollArea className="h-[calc(100vh-180px)]">
-            <div className="space-y-4 pb-4">
-              {renderSection('Performance', sensor.specifications.performance)}
-              {renderSection('Electrical', sensor.specifications.electrical)}
-              {renderSection('Mechanical', sensor.specifications.mechanical)}
-              {renderSection('Environmental', sensor.specifications.environmental)}
-              {renderSection('Additional Information', sensor.extra_fields)}
-              
-              <section>
-                <h3 className="text-lg font-semibold">Source</h3>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="border-b pb-1">
-                    <span className="font-medium">Filename:</span> {sensor.source?.filename || 'N/A'}
-                  </div>
-                  <div className="border-b pb-1">
-                    <span className="font-medium">Upload Date:</span> {sensor.source?.upload_date 
-                      ? new Date(sensor.source.upload_date).toLocaleDateString() 
-                      : 'N/A'}
-                  </div>
-                  <div className="border-b pb-1">
-                    <span className="font-medium">Page Count:</span> {sensor.source?.page_count || 'N/A'}
-                  </div>
-                </div>
-              </section>
-            </div>
+          <ScrollArea className="flex-1 mb-4">
+            {renderSection('Performance', sensor.specifications.performance)}
+            {renderSection('Electrical', sensor.specifications.electrical)}
+            {renderSection('Mechanical', sensor.specifications.mechanical)}
+            {renderSection('Environmental', sensor.specifications.environmental)}
+            {renderSection('Additional Information', sensor.extra_fields)}
+
+            <section>
+              <h3 className="text-md font-semibold mb-2 border-b pb-1">Source</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                  <div><span className="font-medium text-gray-700">Filename:</span> <span className="text-gray-900 ml-1">{sensor.source?.filename || 'N/A'}</span></div>
+                  <div><span className="font-medium text-gray-700">Upload Date:</span> <span className="text-gray-900 ml-1">{sensor.source?.upload_date ? new Date(sensor.source.upload_date).toLocaleDateString() : 'N/A'}</span></div>
+                  <div><span className="font-medium text-gray-700">Page Count:</span> <span className="text-gray-900 ml-1">{sensor.source?.page_count || 'N/A'}</span></div>
+              </div>
+            </section>
           </ScrollArea>
-          <DrawerFooter className="px-0 pb-0">
+          <DrawerFooter className="px-0 pb-0 mt-auto">
             <DrawerClose asChild>
               <Button variant="outline">Close</Button>
             </DrawerClose>
@@ -254,195 +258,214 @@ const SensorDetailsDrawer: React.FC<SensorDetailsDrawerProps> = ({ sensor, isOpe
 
 // --- Main Component ---
 
-export default function MultifunctionBox({ 
-  nextAction, 
-  response, 
-  onConfirm, 
-  selectedModel 
-}: Omit<MultifunctionBoxProps, 'onUpload'>) { // Adjust props type
+export default function MultifunctionBox({
+  nextAction,
+  response,
+  onConfirm,
+  selectedModel,
+  models,
+  onModelChange
+}: MultifunctionBoxProps) {
   const [mode, setMode] = useState<Mode>('default');
   const [result, setResult] = useState<string | null>(null);
   const [buttonsDisabled, setButtonsDisabled] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSensorsLoading, setIsSensorsLoading] = useState(true);
+  const [isFileUploading, setIsFileUploading] = useState(false);
   const [sensors, setSensors] = useState<Sensor[]>([]);
   const [selectedSensorDetails, setSelectedSensorDetails] = useState<SensorDetails | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const { toast } = useToast();
+  const hasFetchedSensors = useRef(false);
+
+  const isCloudWorkstations = process.env.NEXT_PUBLIC_CLOUD_WORKSTATIONS === 'true';
+  const defaultApiUrl = 'http://localhost:8000';
+  const cloudWorkstationsApiUrl = process.env.NEXT_PUBLIC_CLOUD_API_URL || '';
+  const apiUrl = isCloudWorkstations ? cloudWorkstationsApiUrl : defaultApiUrl;
+
+  console.log(`%cMultifunctionBox rendering/mounting... Mode: ${mode}, NextAction: ${nextAction}`, 'color: orange;');
   
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-  
-  // Fetch sensors on initial load and when needed
-  const fetchSensors = useCallback(async () => {
-    try {
-      const res = await fetch(`${apiUrl}/api/sensors`);
-      if (!res.ok) throw new Error('Failed to fetch sensors');
-      const data = await res.json();
-      console.log("Fetched sensors:", data); // Debug: log the fetched data
-      
-      // Ensure we have an array of sensors
-      if (data && data.sensors && Array.isArray(data.sensors)) {
-        setSensors(data.sensors);
-      } else {
-        console.error("Invalid sensor data format:", data);
-        setSensors([]);
-        toast.error("Received invalid sensor data format from server");
-      }
-    } catch (error) {
-      console.error('Error fetching sensors:', error);
-      toast.error("Failed to load sensor list.");
-      setSensors([]); // Set empty array on error
-    }
+  useEffect(() => {
+    console.log(`%cMultifunctionBox: API URL is: ${apiUrl}`, 'color: lightblue;');
   }, [apiUrl]);
 
-  useEffect(() => {
-    fetchSensors();
-  }, [fetchSensors]);
-  
-  // Fetch sensor details
-  const fetchSensorDetails = useCallback(async (model: string) => {
-    setIsLoading(true); 
-    setDrawerOpen(false); 
+  const fetchSensors = useCallback(async () => {
+    console.log(`%cMultifunctionBox: Fetching sensors from URL: ${apiUrl}/api/sensors`, 'color: lightgreen;');
+    setIsSensorsLoading(true);
     try {
-      const res = await fetch(`${apiUrl}/api/sensors/${model}`);
+      const res = await fetch(`${apiUrl}/api/sensors`, { credentials: 'include' });
+
+      // Handle 404 gracefully without toast, set empty array
+      if (res.status === 404) {
+          console.warn(`MultifunctionBox: /api/sensors endpoint not found (404). Setting sensors to empty array.`);
+          setSensors([]);
+      } else if (!res.ok) {
+          // Throw error for other non-ok statuses to be caught below
+          throw new Error(`Failed to fetch sensors (${res.status})`);
+      } else {
+          // Process successful response
+          const data = await res.json();
+          if (data && data.sensors && Array.isArray(data.sensors)) {
+            setSensors(data.sensors);
+            console.log(`%cMultifunctionBox: Successfully fetched ${data.sensors.length} sensors.`, 'color: green;');
+          } else {
+            console.error("Invalid sensor data format:", data);
+            setSensors([]);
+            toast({ title: "Error", description: "Received invalid sensor data format.", variant: "destructive" });
+          }
+      }
+    } catch (error: any) {
+      // Catch errors thrown from !res.ok (excluding 404 handled above)
+      console.error('Error fetching sensors:', error);
+      // Show toast only for non-404 errors caught here
+      toast({ title: "Error", description: `Failed to load sensor list: ${error.message}`, variant: "destructive" });
+      setSensors([]);
+    } finally {
+      setIsSensorsLoading(false);
+    }
+  // Removed toast from dependency array as it's only used conditionally inside
+  }, [apiUrl]);
+
+  // useEffect to fetch sensors ONLY ONCE per mount
+  useEffect(() => {
+    console.log(`%cMultifunctionBox: Sensor fetch effect running. Has fetched: ${hasFetchedSensors.current}`, 'color: cyan;');
+    if (!hasFetchedSensors.current) {
+      console.log("%cMultifunctionBox: Initial sensor fetch triggered.", 'color: yellow; font-weight: bold;');
+      fetchSensors();
+      hasFetchedSensors.current = true;
+    }
+    return () => {
+      console.log("%cMultifunctionBox unmounting...", 'color: red;');
+    };
+  }, [fetchSensors]);
+
+  const fetchSensorDetails = useCallback(async (model: string) => {
+    console.log(`MultifunctionBox: Fetching details for ${model}...`);
+    setIsLoading(true);
+    setSelectedSensorDetails(null);
+    try {
+      const res = await fetch(`${apiUrl}/api/sensors/${model}`, { credentials: 'include' });
       if (!res.ok) {
+        const errorText = await res.text();
         if (res.status === 404) {
-           toast.error(`Sensor details not found for model: ${model}`);
+           toast({ title: "Not Found", description: `Sensor details not found for model: ${model}`, variant: "destructive" });
         } else {
-           throw new Error(`Failed to fetch sensor details for ${model}`);
+           throw new Error(`Failed to fetch sensor details for ${model} (${res.status}): ${errorText}`);
         }
-        setSelectedSensorDetails(null); // Clear details on error
       } else {
         const data = await res.json();
         setSelectedSensorDetails(data);
-        setDrawerOpen(true); 
+        setDrawerOpen(true);
+        console.log(`MultifunctionBox: Details loaded for ${model}.`);
       }
-      setMode('default'); 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching sensor details:', error);
-      toast.error("Error fetching sensor details."); // Use toast
-      setSelectedSensorDetails(null); // Clear details on error
+      toast({ title: "Error", description: `Error fetching sensor details: ${error.message}`, variant: "destructive" });
     } finally {
-      setIsLoading(false); 
+      setIsLoading(false);
     }
-  }, [apiUrl]);
+  }, [apiUrl, toast]);
 
-  // Update mode based on nextAction and response
+  // useEffect to sync mode based on parent state
   useEffect(() => {
-    console.log(`MultifunctionBox: nextAction changed to '${nextAction}', response: '${response.substring(0, 50)}...'`);
-    
-    // Reset loading state unless explicitly set to loading or mode is upload (handled separately)
-    if (nextAction !== 'loading' && mode !== 'upload') {
-       setIsLoading(false);
+    console.log(`%cMultifunctionBox: Syncing mode effect. nextAction='${nextAction}', current mode='${mode}'`, 'color: magenta;');
+    if (!isFileUploading) {
+        setIsLoading(false);
     }
+    setButtonsDisabled(false);
 
     switch (nextAction) {
       case 'confirm_sensor':
+      case 'confirm':
         setMode('question');
         break;
       case 'pdf_upload':
         setMode('upload');
-        // Clear any previous result when prompting for upload
-        setResult(null); 
+        setResult(null);
         break;
       case 'none':
-        // Specific handling for 'none' action - ensure we go back to default
-        setMode('default');
-        break;
       default:
-        // Only switch to default if not currently loading or in upload mode
-        if (!isLoading && mode !== 'upload') { 
-          setMode('default');
+        if (!isFileUploading && !isLoading && !drawerOpen) {
+             setMode('default');
         }
+        break;
     }
+  }, [nextAction, drawerOpen, isLoading, isFileUploading]);
 
-    // ... existing response override logic ...
-  }, [nextAction, response, isLoading, mode]); // Add isLoading and mode to dependencies
-
-  // --- Event Handlers ---
-
-  // Enhanced file upload handler with better feedback
   const handleFileUpload = useCallback(async (file: File) => {
-    setIsLoading(true);
-    setMode('loading');
+    console.log(`MultifunctionBox: Uploading file ${file.name}...`);
+    setIsFileUploading(true);
     const formData = new FormData();
     formData.append('file', file);
-    // Add the current model to the request
     formData.append('model', selectedModel);
 
     try {
       const res = await fetch(`${apiUrl}/api/pdf/upload`, {
         method: 'POST',
         body: formData,
+        credentials: 'include'
       });
-
       const data = await res.json();
-
       if (!res.ok) {
         throw new Error(data.detail || `Failed to upload PDF (${res.status})`);
       }
-
       console.log("Upload successful:", data);
-      
-      // Check if we got meaningful extraction data
-      const hasExtractedData = data.processed_model && 
-                              ((data.manufacturer && data.sensor_type) || 
-                               Object.keys(data.specifications?.performance || {}).length > 0);
-      
-      if (hasExtractedData) {
-        toast.success(`Successfully extracted data for ${data.processed_model}`);
-      } else {
-        // Show warning if extraction was limited
-        toast.warning(`Upload successful, but limited data was extracted. Consider uploading a clearer PDF.`);
-      }
-      
-      // Always refresh the sensor list regardless of extraction quality
+      toast({ title: "Upload Successful", description: `Processed ${data.processed_model || file.name}.` });
+      // Reset flag to allow re-fetch after successful upload
+      console.log("%cMultifunctionBox: Resetting fetch flag for post-upload refresh.", 'color: yellow;');
+      hasFetchedSensors.current = false;
       await fetchSensors();
-      
-      // Always go back to default state after upload completes
+      hasFetchedSensors.current = true;
       setMode('default');
-
     } catch (error: any) {
       console.error("Error during file upload:", error);
-      toast.error(`Upload failed: ${error.message}`);
-      setMode('default');
+      toast({ title: "Upload Failed", description: error.message, variant: "destructive" });
     } finally {
-      setIsLoading(false);
+      setIsFileUploading(false);
     }
-  }, [apiUrl, fetchSensors, selectedModel]);
+  }, [apiUrl, fetchSensors, selectedModel, toast]);
 
-  const handleConfirm = useCallback((answer: 'yes' | 'no', autoConfirm?: boolean) => {
-    // ... existing confirmation logic ...
-    // Ensure isLoading is set true here as well
+  const handleConfirmationResponse = useCallback((answer: 'yes' | 'no') => {
     if (!buttonsDisabled) {
+      console.log(`MultifunctionBox: Confirmation response: ${answer}`);
       setButtonsDisabled(true);
-      setIsLoading(true); 
-      onConfirm(answer, autoConfirm);
-      setTimeout(() => setButtonsDisabled(false), 1500); 
+      onConfirm(answer);
+      setTimeout(() => setButtonsDisabled(false), 1500);
     }
   }, [onConfirm, buttonsDisabled]);
 
-  // Add missing handler functions
   const handleSensorClick = useCallback((sensor: Sensor) => {
     fetchSensorDetails(sensor.model);
   }, [fetchSensorDetails]);
 
   const handleSetModeDefault = useCallback(() => {
     setMode('default');
-    setResult(null); // Clear result when going back to default
+    setResult(null);
   }, []);
 
-  // --- Render Logic ---
-  
-  const renderSensorDetailsDrawer = () => (
+  const handleDrawerOpenChange = useCallback((open: boolean) => {
+    setDrawerOpen(open);
+    if (!open) {
+      setSelectedSensorDetails(null);
+      if (mode !== 'upload' && mode !== 'question') {
+        setMode('default');
+      }
+    }
+  }, [mode]);
+
+  const renderSensorDetailsDrawerInstance = () => (
     <SensorDetailsDrawer
       sensor={selectedSensorDetails}
       isOpen={drawerOpen}
-      onOpenChange={setDrawerOpen}
+      onOpenChange={handleDrawerOpenChange}
     />
   );
 
   const renderCurrentMode = () => {
-    // Show loading indicator if isLoading is true, regardless of the underlying mode
-    if (isLoading) {
+    if (isSensorsLoading && mode === 'default' && !sensors.length) { // Show loading only in default mode initially if no sensors are loaded yet
+        return <LoadingIndicator />;
+    }
+    if (isLoading && !isFileUploading) {
       return <LoadingIndicator />;
     }
 
@@ -451,27 +474,26 @@ export default function MultifunctionBox({
         return (
           <QuestionModeContent
             response={response}
-            onYes={() => handleConfirm('yes')}
-            onNo={() => handleConfirm('no')}
+            onYes={() => handleConfirmationResponse('yes')}
+            onNo={() => handleConfirmationResponse('no')}
             disabled={buttonsDisabled}
           />
         );
       case 'result':
         return <ResultModeContent result={result} onBack={handleSetModeDefault} />;
       case 'upload':
-        // Pass the internal handleFileUpload function to the component
-        return <UploadModeContent 
-                  response={response} 
-                  onFileUpload={handleFileUpload} 
+        return <UploadModeContent
+                  response={response}
+                  onFileUpload={handleFileUpload}
+                  isLoading={isFileUploading}
                 />;
       case 'default':
       default:
         return (
           <DefaultModeContent
             sensors={sensors}
-            selectedModel={selectedModel}
             onSensorClick={handleSensorClick}
-            renderSensorDetailsDrawer={renderSensorDetailsDrawer}
+            isLoading={isSensorsLoading} // Pass loading state still
           />
         );
     }
@@ -479,14 +501,30 @@ export default function MultifunctionBox({
 
   return (
     <>
-      <CardHeader className="pb-2">
-        <CardTitle>Multifunction Box</CardTitle>
-      </CardHeader>
-      <CardContent className="h-[calc(100vh-140px)]">
-        <ScrollArea className="h-full p-4 border rounded-md">
-          {renderCurrentMode()}
-        </ScrollArea>
-      </CardContent>
+      <Card className="flex flex-col h-full">
+        <CardHeader className="pb-2 flex flex-row justify-between items-center">
+          <CardTitle>Sensor Information</CardTitle>
+          <div className="flex items-center gap-2">
+            <Label htmlFor="model-select" className="text-sm font-medium whitespace-nowrap">AI Model:</Label>
+            <Select value={selectedModel} onValueChange={onModelChange}>
+                <SelectTrigger id="model-select" className="w-[200px] lg:w-[250px]">
+                  <SelectValue placeholder="Select a model" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(models ?? []).map((model) => (
+                    <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+          </div>
+        </CardHeader>
+        <CardContent className="flex-1 overflow-hidden py-0 px-0">
+          <ScrollArea className="h-full w-full p-4">
+            {renderCurrentMode()}
+          </ScrollArea>
+        </CardContent>
+      </Card>
+      {renderSensorDetailsDrawerInstance()}
     </>
   );
 }

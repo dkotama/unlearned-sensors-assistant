@@ -1,27 +1,30 @@
-'use client'
+import React, { useState, useEffect, useCallback } from 'react';
+import Chatbox from './Chatbox';
+import MultifunctionBox from './MultifunctionBox'; // Import MultifunctionBox
+import { useToast } from "@/app/components/ui/use-toast";
+import { Card, CardContent, CardFooter, CardHeader } from './ui/card'; // Import Card components
 
-import { useState, useCallback, useEffect } from 'react'
-import Chatbox from './Chatbox'
-import MultifunctionBox from './MultifunctionBox'
-import { Card } from './ui/card'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
-import { useToast } from './ui/use-toast'
-
+// Define Message type if not already globally available
 interface Message {
-  role: 'user' | 'assistant'
-  content: string
+  role: 'user' | 'assistant';
+  content: string;
 }
 
-export default function ChatInterface() {
-  const [chatHistory, setChatHistory] = useState<Message[]>([])
-  const [nextAction, setNextAction] = useState<string>('none')
-  const [simplifiedMessage, setSimplifiedMessage] = useState<string>('')
-  const [lastConfirmTime, setLastConfirmTime] = useState(0)
-  const [selectedModel, setSelectedModel] = useState<string>("meta-llama/llama-3.1-8b-instruct")
-  const [isChangingModel, setIsChangingModel] = useState(false)
-  const { toast } = useToast()
+function ChatInterface() {
+  const { toast } = useToast();
+  const [chatHistory, setChatHistory] = useState<Message[]>([]);
+  const [nextAction, setNextAction] = useState('none');
+  const [simplifiedMessage, setSimplifiedMessage] = useState('');
+  const [selectedModel, setSelectedModel] = useState('meta-llama/llama-3.1-8b-instruct');
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+  const isCloudWorkstations = process.env.NEXT_PUBLIC_CLOUD_WORKSTATIONS === 'true';
+  const defaultApiUrl = 'http://localhost:8000';
+  const cloudWorkstationsApiUrl = process.env.NEXT_PUBLIC_CLOUD_API_URL || '';
+  const apiUrl = isCloudWorkstations ? cloudWorkstationsApiUrl : defaultApiUrl;
+
+  useEffect(() => {
+    console.log(`ChatInterface: Using API URL: ${apiUrl}`);
+  }, [apiUrl]);
 
   const models = [
     { id: "meta-llama/llama-3.1-8b-instruct", name: "Llama 3.1 (8B)" },
@@ -29,166 +32,80 @@ export default function ChatInterface() {
     { id: "meta-llama/llama-3-8b-instruct", name: "Llama 3 (8B)" },
     { id: "meta-llama/llama-3-70b-instruct", name: "Llama 3 (70B)" },
     { id: "meta-llama/llama-4-maverick:free", name: "Llama 4 (17B) Free"}
-  ]
+  ];
 
-  // Clear chat history on page load
-  useEffect(() => {
-    const resetChat = async () => {
-      try {
-        await fetch(`${apiUrl}/api/reset`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-        })
-      } catch (error) {
-        console.error('Error resetting conversation on page load:', error)
-        toast({
-          title: "Error",
-          description: "Failed to initialize chat. Please refresh the page.",
-          variant: "destructive",
-        })
-      }
-    }
-    
-    resetChat()
-  }, [])
-
-  // Handle responses from Chatbox with improved confirmation detection
   const handleChatResponse = useCallback((action: string, simplifiedMsg: string, history: Message[]) => {
-    console.log(`ChatInterface: Received action '${action}', message: '${simplifiedMsg.substring(0, 50)}...'`);
-    
-    // Check if we need to override the action based on message content
-    let finalAction = action;
-    
-    // If the message contains confirmation phrases but action isn't set to confirm_sensor
-    if (action !== 'confirm_sensor' && 
-        (simplifiedMsg.includes("match your needs") || 
-         simplifiedMsg.includes("Please respond with") || 
-         simplifiedMsg.includes("yes or no") ||
-         simplifiedMsg.toLowerCase().includes("does this sensor match"))) {
-      console.log("Overriding action to 'confirm_sensor' based on message content");
-      finalAction = 'confirm_sensor';
-    }
-    
-    setNextAction(finalAction);
+    setNextAction(action);
     setSimplifiedMessage(simplifiedMsg);
-    setChatHistory(history);
-    
-    // If changing model, we can now set it back to false since we got a response
-    if (isChangingModel) {
-      setIsChangingModel(false)
-      toast({
-        title: "Model Changed",
-        description: `Now using ${selectedModel.split('/').pop()}`,
-      })
+    if (history) {
+        setChatHistory(history);
     }
-  }, [isChangingModel, selectedModel])
+    console.log("ChatInterface updated state:", { action, simplifiedMsg, historyLength: history?.length });
+  }, []);
 
-  // Handle model changes
-  const handleModelChange = (newModel: string) => {
-    if (newModel !== selectedModel) {
-      setIsChangingModel(true)
-      setSelectedModel(newModel)
-      toast({
-        title: "Changing Model",
-        description: `Switching to ${newModel.split('/').pop()}`,
-      })
-    }
-  }
-
-  // Handle confirmations from MultifunctionBox with rate limiting
-  const handleConfirm = useCallback(async (answer: string, autoConfirm: boolean = false) => {
-    // Prevent spamming by checking time since last confirmation
-    const now = Date.now()
-    if (now - lastConfirmTime < 1000) {
-      console.log('Confirmation throttled to prevent spamming')
-      return
-    }
-    
-    setLastConfirmTime(now)
-    
+  const sendApiRequest = useCallback(async (message: string) => {
+    console.log(`ChatInterface: Sending API request for message: ${message}`);
+    setChatHistory((prev) => [...prev, { role: 'user', content: message }]);
     try {
-      // Set loading state for MultifunctionBox here
-      setNextAction('loading') // This will trigger loading state in MultifunctionBox
-      
       const response = await fetch(`${apiUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          message: answer, 
-          auto_confirm: autoConfirm,
-          model: selectedModel 
-        }),
-      })
-
-      if (!response.ok) throw new Error('Network response was not ok')
-
-      const data = await response.json()
-      setNextAction(data.next_action)
-      setSimplifiedMessage(data.simplified_message)
-      setChatHistory(data.chat_history)
-    } catch (error) {
-      console.error('Error:', error)
-      setChatHistory((prev) => [...prev, { role: 'assistant', content: 'Sorry, something went wrong.' }])
-      setNextAction('none')
-      setSimplifiedMessage('Sorry, something went wrong.')
-      toast({
-        title: "Error",
-        description: "Failed to process your response. Please try again.",
-        variant: "destructive",
-      })
+        body: JSON.stringify({ message, model: selectedModel }),
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const data = await response.json();
+      console.log(`ChatInterface: Received API response for ${message}:`, data);
+      handleChatResponse(data.next_action, data.simplified_message, data.chat_history);
+    } catch (error: any) {
+      console.error(`Error sending API request for ${message}:`, error);
+      const errorMessage = `Sorry, failed to process '${message}'. ${error.message || 'Please try again.'}`;
+      setChatHistory((prev) => [...prev, { role: 'assistant', content: errorMessage }]);
+      setNextAction('none');
+      setSimplifiedMessage(errorMessage);
+      toast({ title: "Error", description: `Failed to process action: ${message}. ${error.message || ''}`, variant: "destructive" });
     }
-  }, [lastConfirmTime, selectedModel, apiUrl])
+  }, [apiUrl, selectedModel, handleChatResponse, toast]);
+
+  const handleMultifunctionBoxConfirm = useCallback((answer: 'yes' | 'no') => {
+    console.log(`ChatInterface: Received confirmation from MultifunctionBox: ${answer}`);
+    if (answer === 'yes') {
+      sendApiRequest("Confirm");
+    } else {
+      sendApiRequest("Decline");
+    }
+  }, [sendApiRequest]);
 
   return (
-    <div className="flex flex-col h-screen w-full overflow-hidden">
-      <div className="p-2 bg-gray-100 flex justify-between items-center">
-        <div className="text-sm font-medium pl-2">
-          Unlearned Sensors Assistant
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">Model:</span>
-          <Select 
-            value={selectedModel} 
-            onValueChange={handleModelChange} 
-            disabled={isChangingModel}
-          >
-            <SelectTrigger className={`w-[200px] ${isChangingModel ? 'opacity-70' : ''}`}>
-              <SelectValue placeholder="Select model" />
-              {isChangingModel && <span className="ml-2 animate-pulse">Changing...</span>}
-            </SelectTrigger>
-            <SelectContent>
-              {models.map(model => (
-                <SelectItem key={model.id} value={model.id}>
-                  {model.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+    <div className="flex h-full gap-4">
+      {/* Left side: Chat area - Now 50% width */}
+      <div className="w-1/2 flex flex-col gap-4">
+        <Card className="flex-1 flex flex-col overflow-hidden">
+          <Chatbox
+            initialChatHistory={chatHistory}
+            selectedModel={selectedModel} // Keep passing model for context if needed by Chatbox
+            onChatResponse={handleChatResponse}
+          />
+        </Card>
+
+        {/* REMOVED Model Selection Drawer Trigger */}
+        {/* <div className="text-right"> ... Drawer code ... </div> */}
       </div>
-      <div className="flex flex-1 w-full overflow-hidden">
-        {/* Left side: Chatbox */}
-        <div className="w-1/2 h-full">
-          <Card className="h-full w-full rounded-none">
-            <Chatbox 
-              onChatResponse={handleChatResponse} 
-              initialChatHistory={chatHistory}
-              selectedModel={selectedModel}
-            />
-          </Card>
-        </div>
-        {/* Right side: MultifunctionBox */}
-        <div className="w-1/2 h-full">
-          <Card className="h-full w-full rounded-none">
-            <MultifunctionBox
-              nextAction={nextAction}
-              response={simplifiedMessage}
-              onConfirm={handleConfirm}
-              selectedModel={selectedModel}
-            />
-          </Card>
-        </div>
+
+      {/* Right side: Multifunction Box - Now 50% width */}
+      <div className="w-1/2 flex flex-col">
+        {/* Pass model state and handler to MultifunctionBox */}
+        <MultifunctionBox
+          nextAction={nextAction}
+          response={simplifiedMessage}
+          selectedModel={selectedModel} // Pass current value
+          onConfirm={handleMultifunctionBoxConfirm}
+          models={models} // Pass available models
+          onModelChange={setSelectedModel} // Pass state setter function
+        />
       </div>
     </div>
-  )
+  );
 }
+
+export default ChatInterface;
