@@ -8,7 +8,16 @@ from services.data_extractor import DataExtractor
 from services.db_service import MongoDBService
 from config import Config
 
+from fastapi import Request
+from fastapi.exceptions import HTTPException
+import logging
+
 app = FastAPI(title=Config.APP_NAME)
+
+@app.exception_handler(404)
+async def not_found_exception_handler(request: Request, exc: HTTPException):
+    logging.error(f"404 Error: {request.url} not found")
+    return {"detail": "Not found"}, 404
 
 # Add CORS middleware
 app.add_middleware(
