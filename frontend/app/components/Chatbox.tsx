@@ -183,11 +183,14 @@ export default function Chatbox({ onChatResponse, initialChatHistory, selectedMo
                   key={index}
                   className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
-                  <span
+                  <div
                     className={`inline-block max-w-[80%] p-2 px-3 rounded-lg text-sm ${
                       message.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'
                     }`}
                   >
+                    <div className="font-semibold text-xs mb-1">
+                      {message.role === 'user' ? 'User' : `Assistant (${models.find(m => m.id === selectedModel)?.name || selectedModel})`}
+                    </div>
                     {message.role === 'assistant' ? (
                       <ReactMarkdown
                          components={{
@@ -197,7 +200,7 @@ export default function Chatbox({ onChatResponse, initialChatHistory, selectedMo
                     ) : (
                       message.content
                     )}
-                  </span>
+                  </div>
                 </div>
               ))}
               {isLoading && (
