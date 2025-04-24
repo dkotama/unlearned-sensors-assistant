@@ -456,12 +456,27 @@ def merge_extracted_data(extracted_data_list: List[Dict[str, Any]]) -> Dict[str,
 
     def deep_merge_dicts(target, source):
         """ Recursively merge dictionary 'source' into 'target'. """
+        # Validate both target and source are dictionaries
+        if not isinstance(target, dict):
+            logger.error(f"Target is not a dictionary. Target type: {type(target)}")
+            # Return source as fallback if target is not a dict
+            return source if isinstance(source, dict) else {}
+            
+        if not isinstance(source, dict):
+            logger.error(f"Source is not a dictionary. Source type: {type(source)}")
+            return target
+            
         for key, value in source.items():
             if isinstance(value, dict):
+                # Ensure node is a dictionary
+                if key in target and not isinstance(target[key], dict):
+                    logger.warning(f"Overwriting non-dict value with dict at key '{key}'. Old type: {type(target[key])}")
+                    target[key] = {}
                 node = target.setdefault(key, {})
                 deep_merge_dicts(node, value)
             elif is_valid(value):
-                 target[key] = value
+                logger.debug(f"Setting key '{key}' in target. Target type: {type(target)}, Value type: {type(value)}")
+                target[key] = value
         return target
 
     for data in extracted_data_list:
@@ -473,17 +488,40 @@ def merge_extracted_data(extracted_data_list: List[Dict[str, Any]]) -> Dict[str,
             if field in data and is_valid(data[field]):
                 merged_data[field] = data[field]
         
-        if "specifications" in data and isinstance(data["specifications"], dict):
-            merged_data["specifications"] = deep_merge_dicts(
-                merged_data["specifications"], 
-                data["specifications"]
-            )
+        if "specifications" in data:
+            # Validate specifications is a dict before merging
+            if isinstance(data["specifications"], dict):
+                # Ensure merged_data["specifications"] is a dict
+                if not isinstance(merged_data["specifications"], dict):
+                    logger.warning(f"Converting merged_data['specifications'] from {type(merged_data['specifications'])} to dict")
+                    merged_data["specifications"] = {
+                        "performance": {},
+                        "electrical": {},
+                        "mechanical": {},
+                        "environmental": {}
+                    }
+                
+                merged_data["specifications"] = deep_merge_dicts(
+                    merged_data["specifications"],
+                    data["specifications"]
+                )
+            else:
+                logger.warning(f"Skipping non-dict specifications: {type(data['specifications'])}")
             
-        if "extra_fields" in data and isinstance(data["extra_fields"], dict):
-             merged_data["extra_fields"] = deep_merge_dicts(
-                 merged_data["extra_fields"],
-                 data["extra_fields"]
-             )
+        if "extra_fields" in data:
+            # Validate extra_fields is a dict before merging
+            if isinstance(data["extra_fields"], dict):
+                # Ensure merged_data["extra_fields"] is a dict
+                if not isinstance(merged_data["extra_fields"], dict):
+                    logger.warning(f"Converting merged_data['extra_fields'] from {type(merged_data['extra_fields'])} to dict")
+                    merged_data["extra_fields"] = {}
+                
+                merged_data["extra_fields"] = deep_merge_dicts(
+                    merged_data["extra_fields"],
+                    data["extra_fields"]
+                )
+            else:
+                logger.warning(f"Skipping non-dict extra_fields: {type(data['extra_fields'])}")
 
     for spec_type in list(merged_data["specifications"].keys()):
         if not merged_data["specifications"][spec_type]:

@@ -38,7 +38,7 @@ if CLOUD_WORKSTATION_LOG_URL not in ALLOWED_ORIGINS:
 # Set up logging
 def setup_logging():
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     return logging.getLogger(__name__)
