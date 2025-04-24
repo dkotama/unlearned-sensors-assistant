@@ -45,6 +45,7 @@
 /frontend/.DS_Store
 /frontend/.idea/
 /frontend/.vscode/
+/frontend/lib/firebaseConfig.js
 
 /venv
 __pycache__/

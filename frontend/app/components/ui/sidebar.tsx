@@ -170,6 +170,14 @@ export const SidebarMenuButton = React.forwardRef<
   SidebarMenuButtonProps
 >(({ className, asChild = false, ...props }, ref) => {
   const Comp = asChild ? React.Fragment : "button"
+  if (asChild) {
+    return (
+      <Comp
+        ref={ref}
+        {...props}
+      />
+    )
+  }
   return (
     <Comp
       ref={ref}

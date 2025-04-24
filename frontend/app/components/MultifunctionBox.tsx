@@ -473,8 +473,16 @@ export default function MultifunctionBox({
       // Reset flag to allow re-fetch after successful upload
       console.log("%cMultifunctionBox: Resetting fetch flag for post-upload refresh.", 'color: yellow;');
       hasFetchedSensors.current = false;
+      // Clear the upload mode but don't directly set to default yet
+      console.log("%cMultifunctionBox: File upload successful, resetting UI state", 'color: green; font-weight: bold;');
+      
+      // Fetch the updated sensors list
       await fetchSensors();
       hasFetchedSensors.current = true;
+      
+      // Force UI reset by explicitly setting isFileUploading to false first
+      setIsFileUploading(false);
+      // Then explicitly force mode to default
       setMode('default');
     } catch (error: any) {
       console.error("Error during file upload:", error);

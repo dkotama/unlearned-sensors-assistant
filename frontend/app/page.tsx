@@ -1,11 +1,11 @@
 'use client'
-
-import ChatInterface from './components/ChatInterface'
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
 export default function Home() {
-  return (
-    <main className="flex-1 h-full p-4"> {/* Take remaining space and provide padding */}
-      <ChatInterface />
-    </main>
-  )
+  const router = useRouter();
+  useEffect(() => {
+    router.push('/dashboard');
+  }, [router]);
+  return <p>Redirecting to dashboard...</p>;
 }
