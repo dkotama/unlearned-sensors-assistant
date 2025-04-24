@@ -1,5 +1,5 @@
 import time
-from fastapi import HTTPException, UploadFile, File, APIRouter
+from fastapi import HTTPException, UploadFile, File, APIRouter, Form
 from typing import List
 from pydantic import BaseModel
 # Replace relative imports with absolute imports
@@ -16,6 +16,7 @@ from services.intent_detection import detect_intent
 from services.sensor_service import get_all_sensors, get_sensor_by_model, debug_mongodb_connection
 # Import the PDF processing function
 from services.pdf_processor import process_pdf_datasheet
+from services.pdf_processor_alt import process_pdf_datasheet_alt
 
 # Create router
 router = APIRouter()
@@ -146,7 +147,7 @@ async def confirm_sensor(request: ChatRequest):
         raise HTTPException(status_code=400, detail="Invalid response. Please respond with 'yes' or 'no'.")
 
 @router.post("/pdf/upload")
-async def upload_pdf(file: UploadFile = File(...), model: str = None):
+async def upload_pdf(file: UploadFile = File(...), model: str = Form(default=None)):
     """
     Handle PDF file upload, process it, and store extracted data.
     
@@ -154,6 +155,7 @@ async def upload_pdf(file: UploadFile = File(...), model: str = None):
         file: The PDF file to process
         model: Optional model name to use for extraction (from frontend)
     """
+    logger.debug(f"Raw model parameter received: {model}")
     if not file.filename.lower().endswith('.pdf'):
         logger.warning(f"Upload attempt with non-PDF file: {file.filename}")
         raise HTTPException(status_code=400, detail="Invalid file type. Only PDF files are allowed.")
@@ -162,9 +164,11 @@ async def upload_pdf(file: UploadFile = File(...), model: str = None):
         content = await file.read()
         filename = file.filename
         logger.info(f"Received PDF for processing: filename='{filename}', size={len(content)} bytes, model={model}")
+        logger.debug(f"Model parameter received for PDF upload: {model}")
         
-        # Call the processing function from pdf_processor service with the selected model
-        processed_data = await process_pdf_datasheet(content, filename, model)
+        # Use only the alternative processor
+        logger.info(f"Using alternative processor for {filename}")
+        processed_data = await process_pdf_datasheet_alt(content, filename, model)
         
         # Determine success message based on processing result
         model_name = processed_data.get("model", "Unknown")
@@ -177,7 +181,7 @@ async def upload_pdf(file: UploadFile = File(...), model: str = None):
             if any(specs.get(category) for category in ["performance", "electrical", "mechanical", "environmental"]):
                 extraction_quality = "good"
         
-        message = f"Successfully processed '{filename}' and extracted data for sensor model '{model_name}'."
+        message = f"Successfully processed '{filename}' and extracted data for sensor model '{model_name}' using alternative processor."
         if extraction_quality == "partial":
             message += " Limited data was extracted."
         
@@ -185,7 +189,7 @@ async def upload_pdf(file: UploadFile = File(...), model: str = None):
         
         # Return more data to the frontend for feedback
         return {
-            "message": message, 
+            "message": message,
             "processed_model": model_name,
             "manufacturer": processed_data.get("manufacturer"),
             "sensor_type": processed_data.get("sensor_type"),

@@ -452,11 +452,16 @@ export default function MultifunctionBox({
   }, [nextAction, drawerOpen, isLoading, isFileUploading]);
 
   const handleFileUpload = useCallback(async (file: File) => {
-    console.log(`MultifunctionBox: Uploading file ${file.name}...`);
+    console.log(`MultifunctionBox: Uploading file ${file.name}... with model: ${selectedModel}`);
     setIsFileUploading(true);
     const formData = new FormData();
     formData.append('file', file);
     formData.append('model', selectedModel);
+    
+    // Log form data details for debugging (avoiding entries() iteration for compatibility)
+    console.log('FormData contents (simplified):');
+    console.log(`  file: ${file.name}`);
+    console.log(`  model: ${selectedModel}`);
 
     try {
       const res = await fetch(`${apiUrl}/api/v1/pdf/upload`, {
